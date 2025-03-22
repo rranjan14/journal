@@ -1,16 +1,11 @@
-use std::ffi::CStr;
-use std::os::raw::c_char;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use swift_rs::{swift, SRString};
 use tauri::State;
 
-// FFI declarations
-extern "C" {
-    fn init_audio_session_impl() -> bool;
-    fn start_recording_impl() -> bool;
-    fn stop_recording_impl() -> *const c_char;
-    fn free_string_impl(ptr: *const c_char);
-}
+swift!(fn stop_recording_impl() -> Option<SRString>);
+swift!(fn init_audio_session_impl() -> bool);
+swift!(fn start_recording_impl() -> bool);
 
 // State structures
 pub struct RecordingState {
@@ -54,24 +49,18 @@ pub async fn stop_recording(state: State<'_, AppState>) -> Result<String, String
         recording_state.is_recording = false;
 
         // Call Swift function to stop recording and get file path
-        let file_path_ptr = unsafe { stop_recording_impl() };
+        let file_path_opt = unsafe { stop_recording_impl() };
 
-        if file_path_ptr.is_null() {
-            return Err("Failed to stop recording".to_string());
+        match file_path_opt {
+            Some(file_path) => {
+                // Perform transcription in this background thread
+                let transcription = transcribe_audio(&file_path.to_string())?;
+                recording_state.transcription = transcription.clone();
+
+                Ok(transcription)
+            }
+            None => Err("Failed to stop recording".to_string()),
         }
-
-        let file_path = unsafe {
-            let c_str = CStr::from_ptr(file_path_ptr);
-            let result = c_str.to_string_lossy().into_owned();
-            free_string_impl(file_path_ptr);
-            result
-        };
-
-        // Perform transcription in this background thread
-        let transcription = transcribe_audio(&file_path)?;
-        recording_state.transcription = transcription.clone();
-
-        Ok(transcription)
     })
     .join()
     .unwrap()?;

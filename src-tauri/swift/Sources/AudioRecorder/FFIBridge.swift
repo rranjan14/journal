@@ -1,4 +1,5 @@
 import Foundation
+import SwiftRs
 
 // MARK: - Global Shared Instance
 private var recorder = AudioRecorder()
@@ -24,21 +25,15 @@ public func startRecording() -> Bool {
 /// Stop audio recording
 /// - Returns: Pointer to C string containing the file path, or NULL if failed
 @_cdecl("stop_recording_impl")
-public func stopRecording() -> UnsafePointer<CChar>? {
-    if let path = recorder.stopRecording() {
-        let cString = strdup(path)
-        return UnsafePointer(cString)
-    }
-    return nil
+public func stopRecording() -> SRString? {
+    return recorder.stopRecording()
 }
 
 /// Get the current recording file path
 /// - Returns: Pointer to C string containing the file path
 @_cdecl("get_recording_path_impl")
-public func getRecordingPath() -> UnsafePointer<CChar>? {
-    let path = recorder.getAudioURL().path
-    let cString = strdup(path)
-    return UnsafePointer(cString)
+public func getRecordingPath() -> SRString {
+    return SRString(recorder.getAudioURL().path)
 }
 
 /// Create a recorder with custom file path
@@ -50,13 +45,4 @@ public func createRecorderWithPath(_ path: UnsafePointer<CChar>) -> Bool {
     let url = URL(fileURLWithPath: pathString)
     recorder = AudioRecorder()
     return true
-}
-
-/// Free a C string created by the Swift code
-/// - Parameter ptr: Pointer to the C string to free
-@_cdecl("free_string_impl")
-public func freeString(_ ptr: UnsafePointer<CChar>?) {
-    if let ptr = ptr {
-        free(UnsafeMutablePointer(mutating: ptr))
-    }
 }

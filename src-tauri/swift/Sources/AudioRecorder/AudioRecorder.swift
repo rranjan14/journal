@@ -1,4 +1,5 @@
 import Foundation
+import SwiftRs
 import AVFoundation
 
 public protocol AudioRecorderDelegate: AnyObject {
@@ -79,14 +80,14 @@ public class AudioRecorder: NSObject {
         }
     }
     
-    public func stopRecording() -> String? {
+    public func stopRecording() -> SRString? {
         print("⏹️ Stopping recording...")
         audioRecorder?.stop()
         
         let fileExists = FileManager.default.fileExists(atPath: audioURL.path)
         print("📝 File exists at \(audioURL.path): \(fileExists)")
         
-        return fileExists ? audioURL.path : nil
+        return fileExists ? SRString(audioURL.path) : nil
     }
     
     public func getAudioURL() -> URL {
