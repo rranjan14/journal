@@ -22,21 +22,30 @@ pub fn init_audio() -> bool {
 
 // Command handlers
 #[tauri::command]
-pub fn start_recording(state: State<'_, AppState>) -> Result<bool, String> {
-    let mut recording_state = state.0.lock().unwrap();
+pub async fn start_recording(state: State<'_, AppState>) -> Result<bool, String> {
+    let state_clone = Arc::clone(&state.0);
 
-    if recording_state.is_recording {
-        return Err("Already recording".into());
-    }
+    // Start recording in a separate thread to avoid blocking UI
+    let result = thread::spawn(move || {
+        let mut recording_state = state_clone.lock().unwrap();
 
-    let success = unsafe { start_recording_impl() };
+        if recording_state.is_recording {
+            return Err("Already recording".to_string());
+        }
 
-    if success {
-        recording_state.is_recording = true;
-        Ok(true)
-    } else {
-        Err("Failed to start recording".into())
-    }
+        let success = unsafe { start_recording_impl() };
+
+        if success {
+            recording_state.is_recording = true;
+            Ok(true)
+        } else {
+            Err("Failed to start recording".into())
+        }
+    })
+    .join()
+    .unwrap()?;
+
+    Ok(result)
 }
 
 #[tauri::command]
