@@ -2,6 +2,12 @@
 
 Download the [installer](https://github.com/rranjan14/journal/blob/main/Journal_0.1.0_aarch64.dmg) and run it on your MacOS(apple chip).
 
+## Demo
+
+Check out this demo of the application in action:
+
+<video src="./gh-assets/journal-demo.mov" controls="controls" muted="muted" style="max-width:100%"></video>
+
 ## Features
 
 - [x] Audio Recording
@@ -29,11 +35,11 @@ The application uses Foreign Function Interface (FFI) to enable communication be
 
 ## Technical Deep Dive: Audio Processing Pipeline
 
-The audio processing pipeline demonstrates a sophisticated interaction between TypeScript (frontend), Rust (backend), and Swift (native audio). The flow begins when the frontend invokes the `start_recording` command through Tauri's IPC (Inter-Process Communication). This triggers Rust code that interfaces with Swift using FFI (Foreign Function Interface) through `swift-rs` bindings. Swift handles the native audio recording using AVFoundation, capturing audio chunks captured through microphone and system audio which are passed back to Rust via a callback mechanism (`set_chunk_callback_impl`).
+The audio processing pipeline shows how TypeScript (frontend), Rust (backend), and Swift (native audio) work together in a pretty clever way. Here's how it flows: the frontend kicks things off by calling the `start_recording` command through Tauri's IPC (Inter-Process Communication). This gets Rust talking to Swift using FFI (Foreign Function Interface) via `swift-rs` bindings. Swift then does the heavy lifting of recording audio using AVFoundation, grabbing sound from both the microphone and system audio, and sending it back to Rust through a callback function (`set_chunk_callback_impl`).
 
-The data flow is managed through a thread-safe state system using Rust's `Arc<Mutex<RecordingState>>`, ensuring concurrent access to recording status and transcription data is synchronized. When audio chunks arrive from Swift, they're processed through a channel-based system (`mpsc::channel`) that spawns a dedicated transcription worker using `tokio::spawn`. This worker processes audio chunks asynchronously, sending them to OpenAI's Whisper API for transcription. The transcription results are accumulated in the shared state, protected by mutex locks to prevent race conditions.
+We keep the data flowing smoothly using a thread-safe state system with Rust's `Arc<Mutex<RecordingState>>`, which is basically just making sure everyone plays nice when accessing the recording status and transcription data at the same time. When Swift sends over audio chunks, they get processed through a channel system (`mpsc::channel`) that fires up a dedicated worker using `tokio::spawn`. This worker handles audio chunks in the background, shipping them off to OpenAI's Whisper API for transcription. The results get collected in our shared state, with mutex locks standing guard to prevent any data mishaps.
 
-The system employs a combination of static global state (using `lazy_static`) and dynamic state management through Tauri's state system. Memory management is handled automatically through Rust's ownership system, while Swift resources are properly managed through the FFI boundary. (near)Real-time updates are pushed to the frontend through state changes, allowing for live transcription updates without blocking the main UI thread. This architecture ensures efficient memory usage, prevents data races, and maintains responsiveness throughout the recording and transcription process.
+The whole system uses a mix of static global state (with `lazy_static`) and dynamic state management through Tauri. The nice thing about Rust is that it handles memory cleanup automatically through its ownership system, while we make sure Swift resources are properly managed across the FFI boundary. We push near real-time updates to the frontend as the state changes, giving you live transcription updates without freezing up the main UI thread. This whole setup keeps memory usage tight, prevents data races, and keeps everything running smoothly throughout the recording and transcription process.
 
 ## Development
 
