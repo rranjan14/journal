@@ -3,19 +3,25 @@ import SwiftRs
 import AVFoundation
 
 public protocol AudioRecorderDelegate: AnyObject {
-    func audioRecorderDidFinishRecording(_ audioURL: URL)
+    func audioRecorderDidCaptureChunk(_ chunkURL: URL)
     func audioRecorderDidFailWithError(_ error: Error)
 }
 
 public class AudioRecorder: NSObject {
     private var audioRecorder: AVAudioRecorder?
+    private var audioEngine: AVAudioEngine?
+    private var inputNode: AVAudioInputNode?
+    private var audioData: Data
     private var audioURL: URL
     private let settings: [String: Any]
     private let appDirectory: URL
     private let recordingsDirectory: URL
     public weak var delegate: AudioRecorderDelegate?
+    private var isRecording: Bool = false
+    private var mixerNode: AVAudioMixerNode?
     
     override public init() {
+        audioData = Data()
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         
         appDirectory = appSupport.appendingPathComponent("Journal", isDirectory: true)
@@ -23,13 +29,97 @@ public class AudioRecorder: NSObject {
         audioURL = recordingsDirectory.appendingPathComponent("recording.m4a")
         
         settings = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44100,
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 44100.0,
             AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsBigEndianKey: false
         ]
         
         super.init()
+    }
+    
+    private func setupAudioEngine() {
+        print("🎙️ Setting up audio engine...")
+        audioEngine = AVAudioEngine()
+        inputNode = audioEngine?.inputNode
+        mixerNode = AVAudioMixerNode()
+        
+        guard let audioEngine = audioEngine,
+              let inputNode = inputNode,
+              let mixerNode = mixerNode else {
+            print("⚠️ Failed to initialize audio components")
+            return
+        }
+
+        audioEngine.attach(mixerNode)
+        let format = inputNode.outputFormat(forBus: 0)
+        audioEngine.connect(inputNode, to: mixerNode, format: format)
+        
+        mixerNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] (buffer, time) in
+            guard let self = self else {
+                print("⚠️ Self is nil in tap block")
+                return
+            }
+            
+            if !self.isRecording {
+                print("⚠️ Tap called but isRecording is false")
+                return
+            }
+            
+            let channelData = buffer.floatChannelData?[0]
+            let frames = buffer.frameLength
+            
+            let data = Data(bytes: channelData!, count: Int(frames) * MemoryLayout<Float>.stride)
+            self.audioData.append(data)
+            print("📊 Buffer received: \(frames) frames, total data size: \(self.audioData.count) bytes")
+            
+            if self.audioData.count >= 44100 * 2 * MemoryLayout<Float>.stride {
+                print("📝 Processing audio chunk...")
+                self.processAudioChunk()
+            }
+        }
+        
+        print("🎙️ Audio engine setup complete")
+    }
+    
+    private func processAudioChunk() {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let tempURL = recordingsDirectory.appendingPathComponent("temp_chunk_\(timestamp).wav")
+        print("💾 Saving audio chunk to: \(tempURL.path)")
+        
+        do {
+            let audioFile = try AVAudioFile(
+                forWriting: tempURL,
+                settings: settings,
+                commonFormat: .pcmFormatFloat32,
+                interleaved: false
+            )
+            
+            let buffer = AVAudioPCMBuffer(
+                pcmFormat: inputNode!.outputFormat(forBus: 0),
+                frameCapacity: UInt32(audioData.count) / 4
+            )!
+            
+            audioData.withUnsafeBytes { ptr in
+                buffer.floatChannelData!.pointee.update(
+                    from: ptr.bindMemory(to: Float.self).baseAddress!,
+                    count: audioData.count / 4
+                )
+            }
+            buffer.frameLength = buffer.frameCapacity
+            
+            try audioFile.write(from: buffer)
+            print("✅ Successfully wrote audio chunk")
+            
+            Thread.sleep(forTimeInterval: 0.1)
+            delegate?.audioRecorderDidCaptureChunk(tempURL)
+            
+            audioData = Data()
+        } catch {
+            print("❌ Failed to save audio chunk: \(error)")
+        }
     }
     
     private func ensureDirectoriesExist() -> Bool {
@@ -59,20 +149,23 @@ public class AudioRecorder: NSObject {
     
     public func startRecording() -> Bool {
         do {
+            print("▶️ Starting recording...")
             guard ensureDirectoriesExist() else {
                 print("❌ Failed to create necessary directories")
                 return false
             }
             
-            createUniqueAudioURL()
-            print("▶️ Starting recording to: \(audioURL.path)")
+            if audioEngine == nil {
+                print("🎙️ Audio engine not initialized, setting up...")
+                setupAudioEngine()
+            }
             
-            audioRecorder = try AVAudioRecorder(url: audioURL, settings: settings)
-            audioRecorder?.delegate = self
-            audioRecorder?.prepareToRecord()
-            let recordingStarted = audioRecorder?.record() ?? false
-            print("🎙️ Recording started: \(recordingStarted)")
-            return recordingStarted
+            isRecording = true
+            print("🎙️ isRecording flag set to true")
+            
+            try audioEngine?.start()
+            print("✅ Audio engine started successfully")
+            return true
         } catch {
             print("❌ Failed to start recording: \(error)")
             delegate?.audioRecorderDidFailWithError(error)
@@ -80,34 +173,35 @@ public class AudioRecorder: NSObject {
         }
     }
     
-    public func stopRecording() -> SRString? {
+    public func stopRecording() -> Bool {
         print("⏹️ Stopping recording...")
-        audioRecorder?.stop()
         
-        let fileExists = FileManager.default.fileExists(atPath: audioURL.path)
-        print("📝 File exists at \(audioURL.path): \(fileExists)")
+        isRecording = false
+        print("🎙️ isRecording flag set to false")
         
-        return fileExists ? SRString(audioURL.path) : nil
+        audioEngine?.stop()
+        print("🛑 Audio engine stopped")
+        
+        if let node = inputNode {
+            print("🔌 Removing tap from input node...")
+            node.removeTap(onBus: 0)
+            print("✅ Tap removed successfully")
+        }
+        
+        if !audioData.isEmpty {
+            print("📝 Processing remaining audio data (\(audioData.count) bytes)...")
+            processAudioChunk()
+        }
+        
+        audioData = Data()
+        inputNode = nil
+        audioEngine = nil
+        print("🧹 Audio engine and resources cleaned up")
+        
+        return true
     }
     
     public func getAudioURL() -> URL {
         return audioURL
-    }
-}
-
-extension AudioRecorder: AVAudioRecorderDelegate {
-    public func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        if flag {
-            delegate?.audioRecorderDidFinishRecording(audioURL)
-        } else {
-            let error = NSError(domain: "AudioRecorderErrorDomain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Recording finished unsuccessfully"])
-            delegate?.audioRecorderDidFailWithError(error)
-        }
-    }
-    
-    public func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
-        if let error = error {
-            delegate?.audioRecorderDidFailWithError(error)
-        }
     }
 }

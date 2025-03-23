@@ -10,10 +10,9 @@ pub fn run() {
     }
 
     // Create app state
-    let app_state = AppState(std::sync::Arc::new(std::sync::Mutex::new(RecordingState {
-        is_recording: false,
-        transcription: String::new(),
-    })));
+    let app_state = AppState(std::sync::Arc::new(std::sync::Mutex::new(
+        RecordingState::new(),
+    )));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

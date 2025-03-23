@@ -1,85 +1,145 @@
+use lazy_static;
+use std::ffi::{c_char, CStr};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use swift_rs::{swift, SRString};
+use swift_rs::{swift, Bool};
 use tauri::State;
 
-swift!(fn stop_recording_impl() -> Option<SRString>);
+swift!(fn stop_recording_impl() -> Bool);
 swift!(fn init_audio_session_impl() -> bool);
 swift!(fn start_recording_impl() -> bool);
+
+extern "C" {
+    fn set_chunk_callback_impl(callback: extern "C" fn(*const c_char));
+}
 
 // State structures
 pub struct RecordingState {
     pub is_recording: bool,
     pub transcription: String,
+    chunk_sender: Option<Sender<String>>,
+}
+
+impl RecordingState {
+    pub fn new() -> Self {
+        Self {
+            is_recording: false,
+            transcription: String::new(),
+            chunk_sender: None,
+        }
+    }
 }
 
 pub struct AppState(pub Arc<Mutex<RecordingState>>);
+
+// Add this before the handle_audio_chunk function:
+lazy_static::lazy_static! {
+    static ref GLOBAL_STATE: Mutex<Option<RecordingState>> = Mutex::new(None);
+}
 
 // Initialize audio session
 pub fn init_audio() -> bool {
     unsafe { init_audio_session_impl() }
 }
 
+extern "C" fn handle_audio_chunk(path: *const c_char) {
+    let path_str = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
+    if let Some(state) = GLOBAL_STATE.lock().unwrap().as_ref() {
+        if let Some(sender) = &state.chunk_sender {
+            sender.send(path_str).unwrap();
+        }
+    }
+}
+
 // Command handlers
 #[tauri::command]
 pub async fn start_recording(state: State<'_, AppState>) -> Result<bool, String> {
     let state_clone = Arc::clone(&state.0);
+    let (sender, receiver) = channel();
 
-    // Start recording in a separate thread to avoid blocking UI
-    let result = thread::spawn(move || {
+    {
         let mut recording_state = state_clone.lock().unwrap();
+        recording_state.chunk_sender = Some(sender.clone());
 
-        if recording_state.is_recording {
-            return Err("Already recording".to_string());
+        // Initialize the global state
+        let mut global_state = GLOBAL_STATE.lock().unwrap();
+        *global_state = Some(RecordingState {
+            is_recording: true,
+            transcription: String::new(),
+            chunk_sender: Some(sender),
+        });
+    }
+
+    // Clone state_clone for the spawn
+    let state_for_spawn = Arc::clone(&state_clone);
+
+    // Start the transcription worker
+    tokio::spawn(async move {
+        handle_transcription_stream(receiver, state_for_spawn).await;
+    });
+
+    // Set the callback for audio chunks
+    unsafe {
+        set_chunk_callback_impl(handle_audio_chunk);
+    }
+
+    // Start recording
+    let success = unsafe { start_recording_impl() };
+    if success {
+        let mut recording_state = state_clone.lock().unwrap();
+        recording_state.is_recording = true;
+        Ok(true)
+    } else {
+        Err("Failed to start recording".into())
+    }
+}
+
+async fn handle_transcription_stream(
+    receiver: Receiver<String>,
+    state: Arc<Mutex<RecordingState>>,
+) {
+    while let Ok(chunk_path) = receiver.recv() {
+        match transcribe_audio(&chunk_path).await {
+            Ok(partial_transcription) => {
+                let mut recording_state = state.lock().unwrap();
+                recording_state
+                    .transcription
+                    .push_str(&partial_transcription);
+                recording_state.transcription.push(' ');
+
+                // Clean up the temporary file
+                let _ = std::fs::remove_file(chunk_path);
+            }
+            Err(e) => eprintln!("Transcription error: {}", e),
         }
-
-        let success = unsafe { start_recording_impl() };
-
-        if success {
-            recording_state.is_recording = true;
-            Ok(true)
-        } else {
-            Err("Failed to start recording".into())
-        }
-    })
-    .join()
-    .unwrap()?;
-
-    Ok(result)
+    }
 }
 
 #[tauri::command]
-pub async fn stop_recording(state: State<'_, AppState>) -> Result<String, String> {
+pub async fn stop_recording(state: State<'_, AppState>) -> Result<bool, String> {
     let state_clone = Arc::clone(&state.0);
+
+    // Clear the global state
+    {
+        let mut global_state = GLOBAL_STATE.lock().unwrap();
+        *global_state = None;
+    }
 
     // Stop recording in a separate thread to avoid blocking UI
     let result = thread::spawn(move || {
         let mut recording_state = state_clone.lock().unwrap();
         recording_state.is_recording = false;
 
-        // Call Swift function to stop recording and get file path
-        let file_path_opt = unsafe { stop_recording_impl() };
-
-        match file_path_opt {
-            Some(file_path) => {
-                // Create a new runtime in this thread
-                let rt = tokio::runtime::Runtime::new()
-                    .map_err(|e| format!("Failed to create runtime: {}", e))?;
-
-                // Use block_on to run the async function in this thread
-                let transcription =
-                    rt.block_on(async { transcribe_audio(&file_path.to_string()).await })?;
-
-                recording_state.transcription = transcription.clone();
-                Ok(transcription)
-            }
-            None => Err("Failed to stop recording".to_string()),
-        }
+        // Call Swift function to stop recording
+        let success = unsafe { stop_recording_impl() };
+        Ok(success)
     })
     .join()
     .map_err(|_| "Thread panicked".to_string())?;
 
-    // The result is already a Result<String, String>, so just return it directly
     result
 }
 
