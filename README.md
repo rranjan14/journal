@@ -6,7 +6,7 @@ Download the [installer](https://github.com/rranjan14/journal/blob/main/Journal_
 
 Check out this demo of the application in action:
 
-<video src="./gh-assets/journal-demo.mov" controls="controls" muted="muted" style="max-width:100%"></video>
+<video src="https://github.com/rranjan14/journal/blob/main/gh-assets/journal-demo.mp4" controls="controls" muted="muted" style="max-width:100%"></video>
 
 ## Features
 
