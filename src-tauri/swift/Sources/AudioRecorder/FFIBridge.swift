@@ -1,48 +1,58 @@
 import Foundation
 import SwiftRs
 
-// MARK: - Global Shared Instance
 private var recorder = AudioRecorder()
+private var delegate: FFIAudioDelegate? = nil
 
-// MARK: - C Interface Functions
+public typealias AudioChunkCallback = @convention(c) (UnsafePointer<CChar>) -> Void
+private var chunkCallback: AudioChunkCallback?
 
-/// Initialize the audio session (no-op on macOS as AVAudioSession is not needed)
-/// - Returns: Always returns true on macOS
+class FFIAudioDelegate: AudioRecorderDelegate {
+    func audioRecorderDidCaptureChunk(_ chunkURL: URL) {
+        if let callback = chunkCallback {
+            callback(strdup(chunkURL.path))
+        }
+    }
+    
+    func audioRecorderDidFailWithError(_ error: Error) {
+        print("Recording error: \(error)")
+    }
+}
+
+
 @_cdecl("init_audio_session_impl")
 public func initAudioSession() -> Bool {
-    // On macOS, we don't need to initialize an audio session
-    // Audio permissions are handled through system permissions
+    delegate = FFIAudioDelegate()
+    recorder.delegate = delegate
     return true
 }
 
-/// Start audio recording
-/// - Returns: Boolean indicating success
 @_cdecl("start_recording_impl")
 public func startRecording() -> Bool {
     return recorder.startRecording()
 }
 
-/// Stop audio recording
-/// - Returns: Pointer to C string containing the file path, or NULL if failed
 @_cdecl("stop_recording_impl")
-public func stopRecording() -> SRString? {
+public func stopRecording() -> Bool {
     return recorder.stopRecording()
 }
 
-/// Get the current recording file path
-/// - Returns: Pointer to C string containing the file path
 @_cdecl("get_recording_path_impl")
 public func getRecordingPath() -> SRString {
     return SRString(recorder.getAudioURL().path)
 }
 
-/// Create a recorder with custom file path
-/// - Parameter path: Path where to save the recording
-/// - Returns: Boolean indicating success
 @_cdecl("create_recorder_with_path_impl")
 public func createRecorderWithPath(_ path: UnsafePointer<CChar>) -> Bool {
     let pathString = String(cString: path)
     let url = URL(fileURLWithPath: pathString)
     recorder = AudioRecorder()
+    delegate = FFIAudioDelegate()
+    recorder.delegate = delegate
     return true
+}
+
+@_cdecl("set_chunk_callback_impl")
+public func setChunkCallback(_ callback: @escaping @convention(c) (UnsafePointer<CChar>) -> Void) {
+    chunkCallback = callback
 }

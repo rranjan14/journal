@@ -22,18 +22,26 @@ function App() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (isRecording) {
+        const currentTranscription = await invoke("get_transcription");
+        setTranscription(currentTranscription as string);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRecording]);
+
   const toggleRecording = async () => {
     try {
       if (!isRecording) {
-        // Start recording
         await invoke("start_recording");
         setIsRecording(true);
         setTranscription("");
       } else {
-        // Stop recording and get transcription
+        await invoke("stop_recording");
         setIsLoading(true);
-        const result = await invoke("stop_recording");
-        setTranscription(result as string);
         setIsRecording(false);
         setIsLoading(false);
       }
