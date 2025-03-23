@@ -11,4 +11,5 @@ This template should help get you started developing with Tauri, React and Types
 - [x] Audio Recording
 - [x] Audio Transcription
 - [x] HMR on modifying swift files
-- [ ] On the fly transcription
+- [x] Realtime transcription
+- [ ] Handle devive changes for input and output
