@@ -1,5 +1,7 @@
 # Journal
 
+Download the [installer](https://github.com/rranjan14/journal/blob/main/Journal_0.1.0_aarch64.dmg) and run it on your MacOS(apple chip).
+
 ## Features
 
 - [x] Audio Recording
@@ -24,7 +26,6 @@ The application uses Foreign Function Interface (FFI) to enable communication be
 1. Swift exposes functions to Rust using `@_cdecl`
 2. [swift_rs](https://github.com/Brendonovich/swift-rs) helps to link swift function to the rust backend and make them available at runtime.
 3. [tokio](https://github.com/tokio-rs/tokio/tree/master/tokio) for reading file and creating background task to handle transcription generation
-
 
 ## Technical Deep Dive: Audio Processing Pipeline
 
