@@ -14,11 +14,9 @@ extern "C" {
     fn set_chunk_callback_impl(callback: extern "C" fn(*const c_char));
 }
 
-// State structures
 pub struct RecordingState {
     pub is_recording: bool,
     pub transcription: String,
-    chunk_sender: Option<Sender<String>>,
 }
 
 impl RecordingState {
@@ -26,17 +24,15 @@ impl RecordingState {
         Self {
             is_recording: false,
             transcription: String::new(),
-            chunk_sender: None,
         }
     }
 }
 
-pub struct AppState(pub Arc<Mutex<RecordingState>>);
-
-// Add this before the handle_audio_chunk function:
 lazy_static::lazy_static! {
-    static ref GLOBAL_STATE: Mutex<Option<RecordingState>> = Mutex::new(None);
+    static ref GLOBAL_SENDER: Mutex<Option<Sender<String>>> = Mutex::new(None);
 }
+
+pub struct AppState(pub Arc<Mutex<RecordingState>>);
 
 // Initialize audio session
 pub fn init_audio() -> bool {
@@ -47,10 +43,8 @@ extern "C" fn handle_audio_chunk(path: *const c_char) {
     let path_str = unsafe { CStr::from_ptr(path) }
         .to_string_lossy()
         .into_owned();
-    if let Some(state) = GLOBAL_STATE.lock().unwrap().as_ref() {
-        if let Some(sender) = &state.chunk_sender {
-            sender.send(path_str).unwrap();
-        }
+    if let Some(sender) = GLOBAL_SENDER.lock().unwrap().as_ref() {
+        sender.send(path_str).unwrap();
     }
 }
 
@@ -61,32 +55,20 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<bool, String>
     let (sender, receiver) = channel();
 
     {
-        let mut recording_state = state_clone.lock().unwrap();
-        recording_state.chunk_sender = Some(sender.clone());
-
-        // Initialize the global state
-        let mut global_state = GLOBAL_STATE.lock().unwrap();
-        *global_state = Some(RecordingState {
-            is_recording: true,
-            transcription: String::new(),
-            chunk_sender: Some(sender),
-        });
+        let mut global_sender = GLOBAL_SENDER.lock().unwrap();
+        *global_sender = Some(sender);
     }
 
-    // Clone state_clone for the spawn
     let state_for_spawn = Arc::clone(&state_clone);
 
-    // Start the transcription worker
     tokio::spawn(async move {
         handle_transcription_stream(receiver, state_for_spawn).await;
     });
 
-    // Set the callback for audio chunks
     unsafe {
         set_chunk_callback_impl(handle_audio_chunk);
     }
 
-    // Start recording
     let success = unsafe { start_recording_impl() };
     if success {
         let mut recording_state = state_clone.lock().unwrap();
@@ -122,18 +104,15 @@ async fn handle_transcription_stream(
 pub async fn stop_recording(state: State<'_, AppState>) -> Result<bool, String> {
     let state_clone = Arc::clone(&state.0);
 
-    // Clear the global state
     {
-        let mut global_state = GLOBAL_STATE.lock().unwrap();
-        *global_state = None;
+        let mut global_sender = GLOBAL_SENDER.lock().unwrap();
+        *global_sender = None;
     }
 
-    // Stop recording in a separate thread to avoid blocking UI
     let result = thread::spawn(move || {
         let mut recording_state = state_clone.lock().unwrap();
         recording_state.is_recording = false;
 
-        // Call Swift function to stop recording
         let success = unsafe { stop_recording_impl() };
         Ok(success)
     })
