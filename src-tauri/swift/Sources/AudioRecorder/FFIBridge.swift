@@ -7,6 +7,9 @@ private var delegate: FFIAudioDelegate? = nil
 public typealias AudioChunkCallback = @convention(c) (UnsafePointer<CChar>) -> Void
 private var chunkCallback: AudioChunkCallback?
 
+public typealias AudioDataCallback = @convention(c) (UnsafePointer<Float>, Int) -> Void
+private var dataCallback: AudioDataCallback?
+
 class FFIAudioDelegate: AudioRecorderDelegate {
     func audioRecorderDidCaptureChunk(_ chunkURL: URL) {
         if let callback = chunkCallback {
@@ -16,6 +19,15 @@ class FFIAudioDelegate: AudioRecorderDelegate {
     
     func audioRecorderDidFailWithError(_ error: Error) {
         print("Recording error: \(error)")
+    }
+    
+    func audioRecorderDidCaptureData(_ audioData: Data) {
+        if let callback = dataCallback {
+            audioData.withUnsafeBytes { ptr in
+                callback(ptr.baseAddress!.assumingMemoryBound(to: Float.self), 
+                        audioData.count / MemoryLayout<Float>.stride)
+            }
+        }
     }
 }
 
@@ -37,22 +49,7 @@ public func stopRecording() -> Bool {
     return recorder.stopRecording()
 }
 
-@_cdecl("get_recording_path_impl")
-public func getRecordingPath() -> SRString {
-    return SRString(recorder.getAudioURL().path)
-}
-
-@_cdecl("create_recorder_with_path_impl")
-public func createRecorderWithPath(_ path: UnsafePointer<CChar>) -> Bool {
-    let pathString = String(cString: path)
-    let url = URL(fileURLWithPath: pathString)
-    recorder = AudioRecorder()
-    delegate = FFIAudioDelegate()
-    recorder.delegate = delegate
-    return true
-}
-
-@_cdecl("set_chunk_callback_impl")
-public func setChunkCallback(_ callback: @escaping @convention(c) (UnsafePointer<CChar>) -> Void) {
-    chunkCallback = callback
+@_cdecl("set_data_callback_impl")
+public func setDataCallback(_ callback: @escaping AudioDataCallback) {
+    dataCallback = callback
 }

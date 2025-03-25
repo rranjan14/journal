@@ -1,5 +1,5 @@
+use hound::{WavSpec, WavWriter};
 use lazy_static;
-use std::ffi::{c_char, CStr};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -11,7 +11,7 @@ swift!(fn init_audio_session_impl() -> bool);
 swift!(fn start_recording_impl() -> bool);
 
 extern "C" {
-    fn set_chunk_callback_impl(callback: extern "C" fn(*const c_char));
+    fn set_data_callback_impl(callback: extern "C" fn(*const f32, i32));
 }
 
 pub struct RecordingState {
@@ -29,7 +29,7 @@ impl RecordingState {
 }
 
 lazy_static::lazy_static! {
-    static ref GLOBAL_SENDER: Mutex<Option<Sender<String>>> = Mutex::new(None);
+    static ref GLOBAL_DATA_SENDER: Mutex<Option<Sender<Vec<f32>>>> = Mutex::new(None);
 }
 
 pub struct AppState(pub Arc<Mutex<RecordingState>>);
@@ -39,12 +39,12 @@ pub fn init_audio() -> bool {
     unsafe { init_audio_session_impl() }
 }
 
-extern "C" fn handle_audio_chunk(path: *const c_char) {
-    let path_str = unsafe { CStr::from_ptr(path) }
-        .to_string_lossy()
-        .into_owned();
-    if let Some(sender) = GLOBAL_SENDER.lock().unwrap().as_ref() {
-        sender.send(path_str).unwrap();
+extern "C" fn handle_audio_data(data: *const f32, length: i32) {
+    let float_slice = unsafe { std::slice::from_raw_parts(data, length as usize) };
+    let float_vec = float_slice.to_vec();
+
+    if let Some(sender) = GLOBAL_DATA_SENDER.lock().unwrap().as_ref() {
+        sender.send(float_vec).unwrap();
     }
 }
 
@@ -55,18 +55,18 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<bool, String>
     let (sender, receiver) = channel();
 
     {
-        let mut global_sender = GLOBAL_SENDER.lock().unwrap();
+        let mut global_sender = GLOBAL_DATA_SENDER.lock().unwrap();
         *global_sender = Some(sender);
     }
 
     let state_for_spawn = Arc::clone(&state_clone);
 
     tokio::spawn(async move {
-        handle_transcription_stream(receiver, state_for_spawn).await;
+        handle_audio_data_stream(receiver, state_for_spawn).await;
     });
 
     unsafe {
-        set_chunk_callback_impl(handle_audio_chunk);
+        set_data_callback_impl(handle_audio_data);
     }
 
     let success = unsafe { start_recording_impl() };
@@ -79,21 +79,15 @@ pub async fn start_recording(state: State<'_, AppState>) -> Result<bool, String>
     }
 }
 
-async fn handle_transcription_stream(
-    receiver: Receiver<String>,
-    state: Arc<Mutex<RecordingState>>,
-) {
-    while let Ok(chunk_path) = receiver.recv() {
-        match transcribe_audio(&chunk_path).await {
+async fn handle_audio_data_stream(receiver: Receiver<Vec<f32>>, state: Arc<Mutex<RecordingState>>) {
+    while let Ok(audio_data) = receiver.recv() {
+        match transcribe_audio_data(&audio_data).await {
             Ok(partial_transcription) => {
                 let mut recording_state = state.lock().unwrap();
                 recording_state
                     .transcription
                     .push_str(&partial_transcription);
                 recording_state.transcription.push(' ');
-
-                // Clean up the temporary file
-                let _ = std::fs::remove_file(chunk_path);
             }
             Err(e) => eprintln!("Transcription error: {}", e),
         }
@@ -105,7 +99,7 @@ pub async fn stop_recording(state: State<'_, AppState>) -> Result<bool, String> 
     let state_clone = Arc::clone(&state.0);
 
     {
-        let mut global_sender = GLOBAL_SENDER.lock().unwrap();
+        let mut global_sender = GLOBAL_DATA_SENDER.lock().unwrap();
         *global_sender = None;
     }
 
@@ -134,29 +128,47 @@ pub fn is_recording(state: State<'_, AppState>) -> bool {
     recording_state.is_recording
 }
 
-async fn transcribe_audio(file_path: &str) -> Result<String, String> {
+async fn transcribe_audio_data(audio_data: &[f32]) -> Result<String, String> {
+    println!(
+        "Processing audio chunk: {} samples ({:.2} seconds)",
+        audio_data.len(),
+        audio_data.len() as f32 / 44100.0
+    );
+
     let client = reqwest::Client::new();
 
-    // Read the file into a buffer
-    let file_content = tokio::fs::read(file_path)
-        .await
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate: 44100,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
 
-    // Create a Part from the file bytes
-    let file_name = std::path::Path::new(file_path)
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
+    let mut wav_buffer = Vec::new();
+    {
+        let mut writer = WavWriter::new(std::io::Cursor::new(&mut wav_buffer), spec)
+            .map_err(|e| format!("Failed to create WAV writer: {}", e))?;
 
-    let file_part = reqwest::multipart::Part::bytes(file_content).file_name(file_name);
+        for &sample in audio_data {
+            writer
+                .write_sample(sample)
+                .map_err(|e| format!("Failed to write sample: {}", e))?;
+        }
 
-    // Build the form
+        writer
+            .finalize()
+            .map_err(|e| format!("Failed to finalize WAV data: {}", e))?;
+    }
+
+    let file_part = reqwest::multipart::Part::bytes(wav_buffer)
+        .file_name("audio.wav")
+        .mime_str("audio/wav")
+        .map_err(|e| format!("Failed to create file part: {}", e))?;
+
     let form = reqwest::multipart::Form::new()
         .part("file", file_part)
         .text("model", "whisper-1");
 
-    // Get API key
     let api_key =
         std::env::var("OPENAI_API_KEY").map_err(|e| format!("Failed to get API key: {}", e))?;
 
@@ -174,7 +186,6 @@ async fn transcribe_audio(file_path: &str) -> Result<String, String> {
         .await
         .map_err(|e| format!("Failed to get response text: {}", e))?;
 
-    // If the response was not successful, return an error
     if !response_status.is_success() {
         return Err(format!(
             "API returned error status: {} with body: {}",
@@ -182,7 +193,6 @@ async fn transcribe_audio(file_path: &str) -> Result<String, String> {
         ));
     }
 
-    // Parse the response text as JSON
     let json: serde_json::Value =
         serde_json::from_str(&response_text).map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
