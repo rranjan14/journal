@@ -7,12 +7,21 @@
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
     "dev:electron": "wait-on http://localhost:1420 && electron .",
+    "dev:swift": "concurrently \"npm run dev:vite\" \"npm run dev:electron:swift\"",
+    "dev:electron:swift": "wait-on http://localhost:1420 && npm run build:swift && npm run electron:swift",
     "build": "npm run clean && tsc && vite build && npm run build:electron",
     "build:electron": "mkdir -p dist-electron && npx tsc electron/*.ts --outDir dist-electron --module commonjs --target es2020 --moduleResolution node --esModuleInterop --allowSyntheticDefaultImports --skipLibCheck",
-    "clean": "rm -rf dist dist-electron",
+    "check:swift": "node scripts/check-swift.js",
+    "build:swift": "node scripts/check-swift.js && cd swift-audio && swift build --configuration release",
+    "build:swift:debug": "node scripts/check-swift.js && cd swift-audio && swift build",
+    "clean": "rm -rf dist dist-electron swift-audio/.build",
+    "clean:swift": "cd swift-audio && swift package clean",
     "preview": "vite preview",
     "electron": "npm run build:electron && electron .",
-    "dist": "npm run build && electron-builder"
+    "electron:swift": "npm run build:electron && ELECTRON_MAIN=main-swift.js electron .",
+    "test:swift": "cd swift-audio && swift test",
+    "dist": "npm run build && electron-builder",
+    "dist:swift": "npm run build && npm run build:swift && electron-builder"
   },
   "dependencies": {
     "electron-audio-loopback": "^1.0.6",
