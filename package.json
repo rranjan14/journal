@@ -7,10 +7,11 @@
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
     "dev:electron": "wait-on http://localhost:1420 && electron .",
-    "build": "tsc && vite build && npm run build:electron",
+    "build": "npm run clean && tsc && vite build && npm run build:electron",
     "build:electron": "mkdir -p dist-electron && npx tsc electron/*.ts --outDir dist-electron --module commonjs --target es2020 --moduleResolution node --esModuleInterop --allowSyntheticDefaultImports --skipLibCheck",
+    "clean": "rm -rf dist dist-electron",
     "preview": "vite preview",
-    "electron": "electron .",
+    "electron": "npm run build:electron && electron .",
     "dist": "npm run build && electron-builder"
   },
   "dependencies": {

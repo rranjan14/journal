@@ -1,6 +1,6 @@
 # Journal
 
-Download the [installer](https://github.com/rranjan14/journal/blob/main/Journal_0.1.0_aarch64.dmg) and run it on your MacOS(apple chip).
+A cross-platform audio recording and transcription application with dual audio capture capabilities.
 
 ## Demo
 
@@ -8,21 +8,76 @@ Check out this demo of the application in action:
 
 https://github.com/user-attachments/assets/92517461-110d-4e05-b2a5-f98ef49737fa
 
-
 ## Features
 
-- [x] Audio Recording
-- [x] Audio Transcription
-- [x] HMR on modifying swift files
-- [x] Realtime transcription
+- [x] **Dual Audio Recording**: Capture both microphone and system audio simultaneously
+- [x] **Cross-Platform**: Works on Windows, macOS, and Linux
+- [x] **Real-time Transcription**: Live transcription using OpenAI Whisper
+- [x] **Audio Level Monitoring**: Visual feedback for both audio streams
+- [x] **Modern UI**: React-based interface with real-time updates
 - [ ] Handle device changes for input and output
 
 ### Technology Stack
 
 - **Frontend**: React + TypeScript + Vite
-- **Backend**: Rust + Tauri
-- **Native Integration**: Swift
-- **Build System**: Cargo + npm
+- **Backend**: Electron + Node.js
+- **Audio Processing**: Web Audio API + electron-audio-loopback
+- **Transcription**: OpenAI Whisper API
+- **Build System**: npm + TypeScript compiler
+
+## Development Setup
+
+### Prerequisites
+
+- Node.js 18+ 
+- npm or yarn
+- OpenAI API key (for transcription)
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/rranjan14/journal.git
+cd journal
+
+# Install dependencies
+npm install
+
+# Set up environment variables
+cp .env.example .env
+# Add your OpenAI API key to .env
+```
+
+### Development Commands
+
+```bash
+# Start development server (frontend + electron)
+npm run dev
+
+# Build the application
+npm run build
+
+# Build only the electron backend
+npm run build:electron
+
+# Clean build artifacts
+npm run clean
+
+# Run the electron app (builds backend first)
+npm run electron
+
+# Create distributable package
+npm run dist
+```
+
+### Build Process
+
+The application uses a two-stage build process:
+
+1. **Frontend Build**: `vite build` compiles the React app to `dist/`
+2. **Backend Build**: TypeScript compiler builds Electron files to `dist-electron/`
+
+The `dist-electron/` directory is automatically generated and should not be committed to git.
 
 ## How It Works
 
