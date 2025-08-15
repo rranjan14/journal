@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist-electron",
+    "module": "commonjs",
+    "target": "es2020",
+    "lib": ["es2020"],
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": [
+    "electron/**/*"
+  ],
+  "typeRoots": [
+    "node_modules/@types",
+    "electron/types.d.ts"
+  ],
+  "exclude": [
+    "src/**/*",
+    "dist/**/*",
+    "node_modules/**/*"
+  ]
+}
