@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopRecording: () => ipcRenderer.invoke('stop-recording'),
   isRecording: () => ipcRenderer.invoke('is-recording'),
   getTranscription: () => ipcRenderer.invoke('get-transcription'),
+  clearTranscription: () => ipcRenderer.invoke('clear-transcription'),
+  getSystemAudioStream: () => ipcRenderer.invoke('get-system-audio-stream'),
   onTranscriptionUpdate: (callback: (transcription: string) => void) => {
     ipcRenderer.on('transcription-update', (_event, transcription) => callback(transcription));
   },
@@ -23,6 +25,8 @@ declare global {
       stopRecording: () => Promise<boolean>;
       isRecording: () => Promise<boolean>;
       getTranscription: () => Promise<string>;
+      clearTranscription: () => Promise<boolean>;
+      getSystemAudioStream: () => Promise<{ success: boolean; error?: string }>;
       onTranscriptionUpdate: (callback: (transcription: string) => void) => void;
       removeTranscriptionListener: () => void;
     };

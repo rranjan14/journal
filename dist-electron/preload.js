@@ -8,6 +8,8 @@ electron_1.contextBridge.exposeInMainWorld('electronAPI', {
     stopRecording: () => electron_1.ipcRenderer.invoke('stop-recording'),
     isRecording: () => electron_1.ipcRenderer.invoke('is-recording'),
     getTranscription: () => electron_1.ipcRenderer.invoke('get-transcription'),
+    clearTranscription: () => electron_1.ipcRenderer.invoke('clear-transcription'),
+    getSystemAudioStream: () => electron_1.ipcRenderer.invoke('get-system-audio-stream'),
     onTranscriptionUpdate: (callback) => {
         electron_1.ipcRenderer.on('transcription-update', (_event, transcription) => callback(transcription));
     },

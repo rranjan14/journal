@@ -25,7 +25,8 @@ var __importStar = (this && this.__importStar) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
-const audio_recorder_1 = require("./audio-recorder");
+const enhanced_audio_recorder_1 = require("./enhanced-audio-recorder");
+const electron_audio_loopback_1 = require("electron-audio-loopback");
 const isDev = process.env.NODE_ENV === 'development';
 let mainWindow;
 let audioRecorder;
@@ -49,8 +50,10 @@ function createWindow() {
     }
 }
 electron_1.app.whenReady().then(() => {
+    // Initialize electron-audio-loopback for system audio capture
+    (0, electron_audio_loopback_1.initMain)();
     createWindow();
-    audioRecorder = new audio_recorder_1.AudioRecorder();
+    audioRecorder = new enhanced_audio_recorder_1.EnhancedAudioRecorder();
     // Set up transcription update forwarding
     audioRecorder.on('transcription-update', (transcription) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -94,4 +97,20 @@ electron_1.ipcMain.handle('is-recording', () => {
 });
 electron_1.ipcMain.handle('get-transcription', () => {
     return audioRecorder.getTranscription();
+});
+electron_1.ipcMain.handle('clear-transcription', () => {
+    audioRecorder.clearTranscription();
+    return true;
+});
+// System audio capture handler
+electron_1.ipcMain.handle('get-system-audio-stream', async () => {
+    try {
+        // The main process has initMain() called, so system audio should be available
+        // The actual stream will be obtained in the renderer process
+        return { success: true };
+    }
+    catch (error) {
+        console.error('Failed to get system audio stream:', error);
+        return { success: false, error: error.message };
+    }
 });

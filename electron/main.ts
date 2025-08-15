@@ -1,11 +1,12 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
-import { AudioRecorder } from './audio-recorder';
+import { EnhancedAudioRecorder } from './enhanced-audio-recorder';
+import { initMain } from 'electron-audio-loopback';
 
 const isDev = process.env.NODE_ENV === 'development';
 
 let mainWindow: BrowserWindow;
-let audioRecorder: AudioRecorder;
+let audioRecorder: EnhancedAudioRecorder;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -28,8 +29,11 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  // Initialize electron-audio-loopback for system audio capture
+  initMain();
+  
   createWindow();
-  audioRecorder = new AudioRecorder();
+  audioRecorder = new EnhancedAudioRecorder();
 
   // Set up transcription update forwarding
   audioRecorder.on('transcription-update', (transcription: string) => {
@@ -78,4 +82,21 @@ ipcMain.handle('is-recording', () => {
 
 ipcMain.handle('get-transcription', () => {
   return audioRecorder.getTranscription();
+});
+
+ipcMain.handle('clear-transcription', () => {
+  audioRecorder.clearTranscription();
+  return true;
+});
+
+// System audio capture handler
+ipcMain.handle('get-system-audio-stream', async () => {
+  try {
+    // The main process has initMain() called, so system audio should be available
+    // The actual stream will be obtained in the renderer process
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to get system audio stream:', error);
+    return { success: false, error: error.message };
+  }
 });

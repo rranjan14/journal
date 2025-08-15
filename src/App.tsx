@@ -1,6 +1,7 @@
 // src/App.tsx
 import { useState, useEffect } from "react";
 import WaveformVisualizer from "./components/waveform";
+import DualAudioRecorder from "./components/DualAudioRecorder";
 
 // Type guard to check if we're in Electron
 const isElectron = () => {
@@ -83,6 +84,11 @@ function App() {
           <WaveformVisualizer isRecording={isRecording} />
         </div>
 
+        {/* Dual Audio Recorder Component */}
+        <div className="mb-8">
+          <DualAudioRecorder onTranscriptionUpdate={setTranscription} />
+        </div>
+
         <div className="text-center mb-8">
           <button
             onClick={toggleRecording}
@@ -96,8 +102,8 @@ function App() {
             {isLoading
               ? "Processing..."
               : isRecording
-              ? "Stop Recording"
-              : "Start Recording"}
+              ? "Stop Recording (Legacy)"
+              : "Start Recording (Legacy)"}
           </button>
         </div>
 
