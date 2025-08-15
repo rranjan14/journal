@@ -1,18 +1,38 @@
-// src/App.jsx
+// src/App.tsx
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import WaveformVisualizer from "./components/waveform";
+import DualAudioRecorder from "./components/DualAudioRecorder";
+
+// Type guard to check if we're in Electron
+const isElectron = () => {
+  return typeof window !== 'undefined' && window.electronAPI;
+};
 
 function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [transcription, setTranscription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  // Set up transcription update listener
+  useEffect(() => {
+    if (isElectron()) {
+      window.electronAPI.onTranscriptionUpdate((newTranscription: string) => {
+        setTranscription(newTranscription);
+      });
+
+      return () => {
+        window.electronAPI.removeTranscriptionListener();
+      };
+    }
+  }, []);
+
   // Poll recording state to ensure UI reflects backend state
   useEffect(() => {
+    if (!isElectron()) return;
+
     const interval = setInterval(async () => {
       if (isRecording) {
-        const recState = await invoke("is_recording");
+        const recState = await window.electronAPI.isRecording();
         if (!recState && isRecording) {
           setIsRecording(false);
         }
@@ -22,27 +42,29 @@ function App() {
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      if (isRecording) {
-        const currentTranscription = await invoke("get_transcription");
-        setTranscription(currentTranscription as string);
-      }
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isRecording]);
-
   const toggleRecording = async () => {
+    if (!isElectron()) {
+      console.error("Electron API not available");
+      return;
+    }
+
     try {
       if (!isRecording) {
-        await invoke("start_recording");
-        setIsRecording(true);
-        setTranscription("");
+        const success = await window.electronAPI.startRecording();
+        if (success) {
+          setIsRecording(true);
+          setTranscription("");
+        } else {
+          console.error("Failed to start recording");
+        }
       } else {
-        await invoke("stop_recording");
         setIsLoading(true);
-        setIsRecording(false);
+        const success = await window.electronAPI.stopRecording();
+        if (success) {
+          setIsRecording(false);
+        } else {
+          console.error("Failed to stop recording");
+        }
         setIsLoading(false);
       }
     } catch (error) {
@@ -62,6 +84,11 @@ function App() {
           <WaveformVisualizer isRecording={isRecording} />
         </div>
 
+        {/* Dual Audio Recorder Component */}
+        <div className="mb-8">
+          <DualAudioRecorder onTranscriptionUpdate={setTranscription} />
+        </div>
+
         <div className="text-center mb-8">
           <button
             onClick={toggleRecording}
@@ -75,8 +102,8 @@ function App() {
             {isLoading
               ? "Processing..."
               : isRecording
-              ? "Stop Recording"
-              : "Start Recording"}
+              ? "Stop Recording (Legacy)"
+              : "Start Recording (Legacy)"}
           </button>
         </div>
 
